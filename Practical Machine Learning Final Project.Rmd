@@ -1,0 +1,112 @@
+---
+title: "Identification of Exercise Modalities through R Data Analysis"
+output: html_document
+---
+
+```{r setup, include = FALSE }
+knitr::opts_chunk$set( echo = TRUE )
+```
+
+## Executive Summary
+
+Using devices such as JawboneUp, NikeFuelBand, and Fitbitit is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+This report examines data from accelerometers on the belt, forearm, arm, and dumbell of 6 research study participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. By exploring the data, we will develop models allowing the prediction of the manner in which exercises are performed.
+
+The training data for this analysis are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+More information is available from the website: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Building the Model
+
+### Getting and Loading the Data
+
+Load caret, knitr, and randomForest libraries:
+```{r}
+suppressWarnings(library(caret))
+suppressWarnings(library(knitr))
+suppressWarnings(library(randomForest))
+```
+
+Load and examine source data:
+```{r}
+trainingSource <- read.csv(file="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", header=TRUE, 
+        as.is = TRUE, stringsAsFactors = FALSE, sep=',', na.strings=c('NA','','#DIV/0!'))
+testingSource <- read.csv(file="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", header=TRUE, 
+        as.is = TRUE, stringsAsFactors = FALSE, sep=',', na.strings=c('NA','','#DIV/0!'))
+trainingSource$classe <- as.factor(trainingSource$classe) 
+names(trainingSource)
+```
+
+### Cleaning and Subsetting the Data
+
+Three transformations will be performed to clean the data for further processing. The resulting data will be divided into two groups for testing and validating predictive model accuracy.
+
+Removal of variables with predominantly "NA" values:
+```{r}
+valueNA <- sapply(trainingSource, function(x) mean(is.na(x))) > 0.90
+trainingSource <- trainingSource[, valueNA==F]
+valueNA_test <- sapply(testingSource, function(x) mean(is.na(x))) > 0.90
+testingSource <- testingSource[, valueNA_test==F]
+```
+
+Removal of variables with nearly zero variance:
+```{r}
+nzv <- nearZeroVar(trainingSource)
+trainingSource <- trainingSource[, -nzv]
+nzv_test <- nearZeroVar(testingSource)
+testingSource <- testingSource[, -nzv_test]
+```
+
+Removal of variables not influencing analysis (sequence, user name, and timestamp data):
+```{r}
+trainingSource <- trainingSource[, -(1:5)]
+testingSource <- testingSource[, -(1:5)]
+```
+
+Partition training data into two sets, one to use for training the model, and the second for cross-validation testing:
+```{r}
+set.seed(3141)
+trainingPartitions <- createDataPartition(y=trainingSource$classe, p=0.6, list=FALSE)
+trainingTrain <- trainingSource[trainingPartitions, ]
+trainingValidate <- trainingSource[-trainingPartitions, ]
+dim(trainingTrain); dim(trainingValidate)
+```
+
+## Training the Model
+
+### Train the model using K-nearest neighbors and random forest algorithms
+
+K-nearest neighbors (kNN) algorithm:
+```{r}
+controlKNN = trainControl(method = "adaptive_cv")
+modelKNN = train(classe ~ ., trainingTrain, method = "knn", trControl = controlKNN)
+resultsKNN = data.frame(modelKNN$results)
+fitKNN <- predict(modelKNN, trainingValidate)
+```
+
+Random forest (rf) algorithm: 
+```{r}
+controlRF = trainControl(method = "oob")
+modelRF = train(classe ~ ., trainingTrain, method = "rf", ntree = 100, trControl = controlRF)
+resultsRF = data.frame(modelRF$results)
+fitRF <- predict(modelRF, trainingValidate)
+```
+
+### Review accuracy of respective algorithms by creating confusion matrices
+```{r}
+confusionMatrix(fitKNN, trainingValidate$classe)
+confusionMatrix(fitRF, trainingValidate$classe)
+```
+
+The analysis indicates a 90.79% accuracy level for K-nearest neighbers, and 99.67% for random forest. Based upon the accuracies reported, the final analysis will be performed using the random forest algorithm. The vast differences in accuracy level, coupled with the near-100% accuracy of the random forest algorithm, preclude the need for further model comparisons.
+
+## Predicting the Test Data
+
+```{r}
+testingPred <- predict(modelRF, testingSource)
+testingPred
+```
+
